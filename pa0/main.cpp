@@ -24,6 +24,18 @@ void transfer(std::map<int, float> &accounts, float amount)
     accounts[a2] += amount;
 }
 
+float balance(std::map<int, float> &accounts)
+{
+    std::lock_guard<std::mutex> lock(accounts_mutex);
+
+    float balance = 0;
+
+    for (int i = 0; i < 10; i++)
+        balance += accounts[i];
+
+    return balance;
+}
+
 int main()
 {
     std::map<int, float> accounts;
@@ -36,6 +48,8 @@ int main()
 
     for (int i = 0; i < 10; i++)
         std::cout << accounts[i] << std::endl;
+
+    std::cout << balance(accounts) << std::endl;
 
     return 0;
 }
