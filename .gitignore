@@ -70,3 +70,9 @@ Testing/
 
 # Mac OS
 .DS_store
+
+# Misc
+.png
+.pdf
+.jpg
+.jpeg
