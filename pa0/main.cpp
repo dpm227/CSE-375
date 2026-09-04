@@ -4,6 +4,8 @@
  * PA0
  * 9-4-26
  * Note: Using C++ 17
+ * Run like this: ./main x
+ * Where x is the desired number of threads (1,2,3, 4, or 8)
  */
 
 #include <iostream>
@@ -19,7 +21,7 @@
 #include <algorithm>
 
 constexpr int NUM_ACCOUNTS = 1000;
-constexpr int ITERATIONS = 1000;
+constexpr int TOTAL_ITERATIONS = 8000;
 constexpr int TRANSFER_PERCENTAGE = 30;
 constexpr float INITIAL_ACCOUNT_BALANCE = 1000.0f;
 constexpr float SUM_BALANCE = NUM_ACCOUNTS * INITIAL_ACCOUNT_BALANCE;
@@ -85,13 +87,13 @@ float balance(const std::map<int, float> &accounts)
     return balance;
 }
 
-long long do_work(std::map<int, float> &accounts)
+long long do_work(std::map<int, float> &accounts, int iterations)
 {
     std::uniform_int_distribution<int> operation_dist(1, 100);
 
     auto start = std::chrono::high_resolution_clock::now();
 
-    for (int i = 0; i < ITERATIONS; i++)
+    for (int i = 0; i < iterations; i++)
     {
         int rnd = operation_dist(get_random_generator());
 
@@ -126,6 +128,17 @@ int main(int argc, char *argv[])
 
     int num_threads = std::atoi(argv[1]);
 
+    if (num_threads != 1 &&
+        num_threads != 2 &&
+        num_threads != 4 &&
+        num_threads != 8)
+    {
+        std::cerr << "Number of threads must be 1, 2, 4, or 8.\n";
+        return 1;
+    }
+
+    int iterations_per_thread = TOTAL_ITERATIONS / num_threads;
+
     std::map<int, float> accounts;
 
     for (int i = 0; i < NUM_ACCOUNTS; i++)
@@ -150,7 +163,7 @@ int main(int argc, char *argv[])
     {
         // create each thread and run do work
         threads.emplace_back([&, i]()
-                             { exec_times[i] = do_work(accounts); });
+                             { exec_times[i] = do_work(accounts, iterations_per_thread); });
     }
 
     // wait for threads to finish
