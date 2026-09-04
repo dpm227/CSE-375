@@ -21,8 +21,8 @@
 #include <algorithm>
 
 constexpr int NUM_ACCOUNTS = 1000;
-constexpr int TOTAL_ITERATIONS = 8000;
-constexpr int TRANSFER_PERCENTAGE = 30;
+constexpr int TOTAL_ITERATIONS = 80000;
+constexpr int TRANSFER_PERCENTAGE = 75;
 constexpr float INITIAL_ACCOUNT_BALANCE = 1000.0f;
 constexpr float SUM_BALANCE = NUM_ACCOUNTS * INITIAL_ACCOUNT_BALANCE;
 
@@ -111,8 +111,60 @@ long long do_work(std::map<int, float> &accounts, int iterations)
     }
     auto end = std::chrono::high_resolution_clock::now();
 
-    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
-        end - start);
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+
+    return duration.count();
+}
+
+void transfer_sequential(std::map<int, float> &accounts, float amount)
+{
+    std::uniform_int_distribution<int> dist(0, NUM_ACCOUNTS - 1);
+
+    int a1 = dist(get_random_generator());
+    int a2 = dist(get_random_generator());
+
+    while (a1 == a2)
+        a2 = dist(get_random_generator());
+
+    accounts.at(a1) -= amount;
+    accounts.at(a2) += amount;
+}
+
+float balance_sequential(
+    const std::map<int, float> &accounts)
+{
+    float total = 0;
+
+    for (const auto &[account_id, account_balance] : accounts)
+        total += account_balance;
+
+    return total;
+}
+
+long long do_work_sequential(std::map<int, float> &accounts, int iterations)
+{
+    std::uniform_int_distribution<int> operation_dist(1, 100);
+
+    auto start = std::chrono::high_resolution_clock::now();
+
+    for (int i = 0; i < iterations; i++)
+    {
+        int rnd = operation_dist(get_random_generator());
+
+        if (rnd <= TRANSFER_PERCENTAGE)
+            transfer_sequential(accounts, 100);
+        else
+        {
+            float current_balance = balance_sequential(accounts);
+
+            if (current_balance != SUM_BALANCE)
+                std::cerr << "Incorrect balance: " << current_balance << '\n';
+        }
+    }
+
+    auto end = std::chrono::high_resolution_clock::now();
+
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
 
     return duration.count();
 }
@@ -128,10 +180,7 @@ int main(int argc, char *argv[])
 
     int num_threads = std::atoi(argv[1]);
 
-    if (num_threads != 1 &&
-        num_threads != 2 &&
-        num_threads != 4 &&
-        num_threads != 8)
+    if (num_threads != 1 && num_threads != 2 && num_threads != 4 && num_threads != 8)
     {
         std::cerr << "Number of threads must be 1, 2, 4, or 8.\n";
         return 1;
@@ -143,6 +192,25 @@ int main(int argc, char *argv[])
 
     for (int i = 0; i < NUM_ACCOUNTS; i++)
         accounts.insert({i, INITIAL_ACCOUNT_BALANCE});
+
+    if (num_threads == 1)
+    {
+        long long sequential_time =
+            do_work_sequential(accounts, TOTAL_ITERATIONS);
+
+        std::cout << "Sequential execution time: "
+                  << sequential_time
+                  << " microseconds\n";
+
+        std::cout << "Final balance: "
+                  << balance_sequential(accounts)
+                  << '\n';
+
+        while (!accounts.empty())
+            accounts.erase(accounts.begin());
+
+        return 0;
+    }
 
     // std::cout << do_work(accounts) << std::endl;
 
@@ -189,6 +257,9 @@ int main(int argc, char *argv[])
               << " microseconds\n";
 
     std::cout << "Final balance: " << balance(accounts) << std::endl;
+
+    while (!accounts.empty())
+        accounts.erase(accounts.begin());
 
     return 0;
 }
