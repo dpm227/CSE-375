@@ -1,3 +1,11 @@
+/**
+ * Dylan McClellan
+ * dpm227
+ * PA0
+ * 9-4-26
+ * Note: Using C++ 17
+ */
+
 #include <iostream>
 #include <map>
 #include <random>
@@ -5,59 +13,100 @@
 #include <thread>
 #include <vector>
 #include <cstdlib>
+#include <array>
+#include <mutex>
+#include <shared_mutex>
+#include <algorithm>
 
-std::mutex accounts_mutex;
+constexpr int NUM_ACCOUNTS = 1000;
+constexpr int ITERATIONS = 1000;
+constexpr int TRANSFER_PERCENTAGE = 30;
+constexpr float INITIAL_ACCOUNT_BALANCE = 1000.0f;
+constexpr float SUM_BALANCE = NUM_ACCOUNTS * INITIAL_ACCOUNT_BALANCE;
+
+std::array<std::shared_mutex, NUM_ACCOUNTS> account_mutexes;
+
+std::mt19937 &get_random_generator()
+{
+    static thread_local std::mt19937 generator(std::random_device{}());
+    return generator;
+}
+
+// std::mutex accounts_mutex;
 
 void transfer(std::map<int, float> &accounts, float amount)
 {
-    std::random_device rd;
-    std::mt19937 gen(rd());
-
     // inclusive range [0, x]
-    std::uniform_int_distribution<> dist(0, accounts.size() - 1);
+    std::uniform_int_distribution<> dist(0, NUM_ACCOUNTS - 1);
 
-    int a1 = dist(gen);
-    int a2 = dist(gen);
+    int a1 = dist(get_random_generator());
+    int a2 = dist(get_random_generator());
 
     while (a1 == a2)
-        a2 = dist(gen);
+        a2 = dist(get_random_generator());
 
-    std::lock_guard<std::mutex> lock(accounts_mutex);
+    // std::lock_guard<std::mutex> lock(accounts_mutex);
+    // lock the lower account number first
+    int first = std::min(a1, a2);
+    int second = std::max(a1, a2);
 
-    accounts[a1] -= amount;
-    accounts[a2] += amount;
+    // accounts[a1] -= amount;
+    // accounts[a2] += amount;
+    // transfers with exclusive access to both accounts
+    std::unique_lock<std::shared_mutex> first_lock(account_mutexes[first]);
+    std::unique_lock<std::shared_mutex> second_lock(account_mutexes[second]);
+
+    accounts.at(a1) -= amount;
+    accounts.at(a2) += amount;
 }
 
-float balance(std::map<int, float> &accounts)
+float balance(const std::map<int, float> &accounts)
 {
+    // shared lock for every account until the sum is complete
+    std::vector<std::shared_lock<std::shared_mutex>> locks;
+    locks.reserve(NUM_ACCOUNTS);
+
+    // lock in account number order to prevent deadlock
+    for (int i = 0; i < NUM_ACCOUNTS; i++)
+        locks.emplace_back(account_mutexes[i]);
+
     float balance = 0;
 
+    for (const auto &[account_id, account_balance] : accounts)
+        balance += account_balance;
+
+    /*
     std::lock_guard<std::mutex> lock(accounts_mutex);
 
     for (int i = 0; i < 10; i++)
         balance += accounts[i];
+    */
 
     return balance;
 }
 
 long long do_work(std::map<int, float> &accounts)
 {
-    int x = 1;
-
-    int threshold = 30;
+    std::uniform_int_distribution<int> operation_dist(1, 100);
 
     auto start = std::chrono::high_resolution_clock::now();
 
-    for (int i = 0; i < 1000; i++)
+    for (int i = 0; i < ITERATIONS; i++)
     {
-        if (x < threshold)
+        int rnd = operation_dist(get_random_generator());
+
+        if (rnd <= TRANSFER_PERCENTAGE)
             transfer(accounts, 100);
         else
-            balance(accounts); // make sure every invocation returns SUM_BALANCE
-        x++;
-        // std::cout << balance(accounts) << std::endl;
-    }
+        {
+            float current_balance = balance(accounts);
 
+            if (current_balance != SUM_BALANCE)
+                std::cerr << "Incorrect balance: " << current_balance << "\n";
+
+            // std::cout << balance(accounts) << std::endl;
+        }
+    }
     auto end = std::chrono::high_resolution_clock::now();
 
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -68,10 +117,19 @@ long long do_work(std::map<int, float> &accounts)
 
 int main(int argc, char *argv[])
 {
+    if (argc < 2)
+    {
+        std::cerr << "Usage: " << argv[0]
+                  << " <number_of_threads>\n";
+        return 1;
+    }
+
+    int num_threads = std::atoi(argv[1]);
+
     std::map<int, float> accounts;
 
-    for (int i = 0; i < 10; i++)
-        accounts.insert({i, 1000});
+    for (int i = 0; i < NUM_ACCOUNTS; i++)
+        accounts.insert({i, INITIAL_ACCOUNT_BALANCE});
 
     // std::cout << do_work(accounts) << std::endl;
 
@@ -82,15 +140,15 @@ int main(int argc, char *argv[])
 
     // std::cout << balance(accounts) << std::endl;
 
-    int num_threads = std::atoi(argv[1]);
-
     std::vector<std::thread> threads;
     std::vector<long long> exec_times(num_threads);
+
+    auto parallel_start =
+        std::chrono::high_resolution_clock::now();
 
     for (int i = 0; i < num_threads; i++)
     {
         // create each thread and run do work
-        // std::ref ensures the same map is used by each thread
         threads.emplace_back([&, i]()
                              { exec_times[i] = do_work(accounts); });
     }
@@ -101,10 +159,21 @@ int main(int argc, char *argv[])
         thread.join();
     }
 
+    auto parallel_end =
+        std::chrono::high_resolution_clock::now();
+
+    auto parallel_duration =
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            parallel_end - parallel_start);
+
     for (int i = 0; i < num_threads; i++)
     {
         std::cout << "Thread" << i << ": " << exec_times[i] << " microseconds\n";
     }
+
+    std::cout << "Total parallel execution time: "
+              << parallel_duration.count()
+              << " microseconds\n";
 
     std::cout << "Final balance: " << balance(accounts) << std::endl;
 
