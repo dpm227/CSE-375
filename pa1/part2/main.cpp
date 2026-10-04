@@ -5,9 +5,11 @@
  * Local:
  *   c++ -O3 -std=c++17 -pthread main.cpp -I/opt/homebrew/opt/tbb/include -L/opt/homebrew/opt/tbb/lib -Wl,-rpath,/opt/homebrew/opt/tbb/lib -ltbb -o kmeans
  * Run either dataset:
- *   ./kmeans 4 1 256 < datasets/dataset1.txt
- *   ./kmeans 4 1 256 < datasets/dataset2.txt
- * Arguments: threads (0 = sequential), seed, grain size, optional --quiet.
+ *   ./kmeans 4 < datasets/dataset1.txt
+ *   ./kmeans 4 < datasets/dataset2.txt
+ * Only option: positive thread count (default 1).
+ * Seed is fixed at 1 and grain size at 256 for repeatable comparisons.
+ * Compare against the supplied serial program using the same seed.
  */
 #include <tbb/blocked_range.h>
 #include <tbb/global_control.h>
@@ -37,11 +39,8 @@ int main(int argc, char **argv)
     try
     {
         int threads = argc > 1 ? std::stoi(argv[1]) : 1;
-        int seed = argc > 2 ? std::stoi(argv[2]) : 1;
-        int grain = argc > 3 ? std::stoi(argv[3]) : 256;
-        bool quiet = argc > 4 && std::string(argv[4]) == "--quiet";
         int n, d, k, limit, named;
-        if (threads < 0 || grain < 1 ||
+        if (argc > 2 || threads < 1 ||
             !(std::cin >> n >> d >> k >> limit >> named) ||
             n < 1 || d < 1 || k < 1 || k > n || limit < 1 ||
             (named != 0 && named != 1) || k > std::numeric_limits<int>::max() / d)
@@ -60,11 +59,11 @@ int main(int argc, char **argv)
         }
 
         tbb::global_control control(tbb::global_control::max_allowed_parallelism,
-                                    std::max(1, threads));
+                                    threads);
         auto begin = std::chrono::steady_clock::now();
         std::vector<int> labels(n, -1), selected;
         std::vector<double> centers(k * d);
-        std::srand(seed);
+        std::srand(1);
 
         for (int c = 0; c < k; ++c)
         {
@@ -118,8 +117,8 @@ int main(int argc, char **argv)
                     a.sums[j] += b.sums[j];
                 return a;
             };
-            tbb::blocked_range<int> range(0, n, grain);
-            Totals totals = threads == 0 ? assign(range, Totals(k, d)) : tbb::parallel_reduce(range, Totals(k, d), assign, combine);
+            tbb::blocked_range<int> range(0, n, 256);
+            Totals totals = tbb::parallel_reduce(range, Totals(k, d), assign, combine);
 
             auto update = [&](int c)
             {
@@ -127,11 +126,7 @@ int main(int argc, char **argv)
                     for (int j = 0; j < d; ++j)
                         centers[c * d + j] = totals.sums[c * d + j] / totals.counts[c];
             };
-            if (threads == 0)
-                for (int c = 0; c < k; ++c)
-                    update(c);
-            else
-                tbb::parallel_for(0, k, update);
+            tbb::parallel_for(0, k, update);
             ++iterations;
             if (totals.changed == 0)
                 break;
@@ -142,25 +137,24 @@ int main(int argc, char **argv)
             return std::chrono::duration<double, std::micro>(b - a).count();
         };
         std::cout << std::setprecision(17);
-        if (!quiet)
-            for (int c = 0; c < k; ++c)
-            {
-                std::cout << "Cluster " << c + 1 << '\n';
-                for (int i = 0; i < n; ++i)
-                    if (labels[i] == c)
-                    {
-                        std::cout << "Point " << i + 1 << ": ";
-                        for (int j = 0; j < d; ++j)
-                            std::cout << points[static_cast<size_t>(i) * d + j] << ' ';
-                        if (named)
-                            std::cout << "- " << names[i];
-                        std::cout << '\n';
-                    }
-                std::cout << "Cluster values: ";
-                for (int j = 0; j < d; ++j)
-                    std::cout << centers[c * d + j] << ' ';
-                std::cout << '\n';
-            }
+        for (int c = 0; c < k; ++c)
+        {
+            std::cout << "Cluster " << c + 1 << '\n';
+            for (int i = 0; i < n; ++i)
+                if (labels[i] == c)
+                {
+                    std::cout << "Point " << i + 1 << ": ";
+                    for (int j = 0; j < d; ++j)
+                        std::cout << points[static_cast<size_t>(i) * d + j] << ' ';
+                    if (named)
+                        std::cout << "- " << names[i];
+                    std::cout << '\n';
+                }
+            std::cout << "Cluster values: ";
+            for (int j = 0; j < d; ++j)
+                std::cout << centers[c * d + j] << ' ';
+            std::cout << '\n';
+        }
         std::cout << "Break in iteration " << iterations << '\n'
                   << "TOTAL EXECUTION TIME = " << us(begin, end) << '\n'
                   << "TIME PHASE 1 = " << us(begin, initialized) << '\n'
@@ -168,7 +162,7 @@ int main(int argc, char **argv)
     }
     catch (const std::exception &e)
     {
-        std::cerr << e.what() << "\nUsage: ./kmeans [threads>=0] [seed] [grain>0] [--quiet] < data.txt\n";
+        std::cerr << e.what() << "\nUsage: ./kmeans [threads>=1] < data.txt\n";
         return 1;
     }
 }
