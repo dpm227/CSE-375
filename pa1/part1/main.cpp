@@ -149,60 +149,112 @@ int main(int argc, char *argv[])
     {
         int N;
         int threads;
+
         double method1Average;
+        double method1Variance;
+
         double method2Average;
+        double method2Variance;
+
         double method3Average;
+        double method3Variance;
     };
 
     std::vector<Result> results;
 
-    // Run all experiments
+    auto calculateAverage = [](const std::vector<long long> &times)
+    {
+        double total = 0;
+
+        for (long long time : times)
+        {
+            total += time;
+        }
+
+        return total / times.size();
+    };
+
+    auto calculateVariance = [](const std::vector<long long> &times,
+                                double average)
+    {
+        double sum = 0;
+
+        for (long long time : times)
+        {
+            double difference = time - average;
+            sum += difference * difference;
+        }
+
+        return sum / (times.size() - 1);
+    };
+
     for (int N : nValues)
     {
         for (int numThreads : threadCounts)
         {
-            long long method1Total = 0;
-            long long method2Total = 0;
-            long long method3Total = 0;
+            std::vector<long long> method1Times;
+            std::vector<long long> method2Times;
+            std::vector<long long> method3Times;
 
+            // Method 1: TBB
             for (int trial = 0; trial < numTrials; trial++)
             {
-                method1Total += method1(N, numThreads);
+                method1Times.push_back(
+                    method1(N, numThreads));
             }
 
+            // Method 2: Static
             for (int trial = 0; trial < numTrials; trial++)
             {
-                method2Total += method2(N, numThreads);
+                method2Times.push_back(
+                    method2(N, numThreads));
             }
 
+            // Method 3: Dynamic
             for (int trial = 0; trial < numTrials; trial++)
             {
-                method3Total += method3(N, numThreads);
+                method3Times.push_back(
+                    method3(N, numThreads));
             }
 
             double method1Average =
-                method1Total / static_cast<double>(numTrials);
+                calculateAverage(method1Times);
 
             double method2Average =
-                method2Total / static_cast<double>(numTrials);
+                calculateAverage(method2Times);
 
             double method3Average =
-                method3Total / static_cast<double>(numTrials);
+                calculateAverage(method3Times);
+
+            double method1Variance =
+                calculateVariance(method1Times, method1Average);
+
+            double method2Variance =
+                calculateVariance(method2Times, method2Average);
+
+            double method3Variance =
+                calculateVariance(method3Times, method3Average);
 
             results.push_back({N,
                                numThreads,
+
                                method1Average,
+                               method1Variance,
+
                                method2Average,
-                               method3Average});
+                               method2Variance,
+
+                               method3Average,
+                               method3Variance});
         }
     }
 
-    // Print all results at the very end
     std::cout << "\n\n========================================\n";
-    std::cout << "FINAL AVERAGE RESULTS\n";
-    std::cout << "Each average is based on "
+    std::cout << "FINAL RESULTS\n";
+    std::cout << "Each result is based on "
               << numTrials << " trials\n";
-    std::cout << "Times are in microseconds\n";
+    std::cout << "Average: microseconds\n";
+    std::cout << "Variance: microseconds^2\n";
     std::cout << "========================================\n";
 
     for (const auto &result : results)
@@ -210,17 +262,29 @@ int main(int argc, char *argv[])
         std::cout << "\nN = " << result.N
                   << ", Threads = " << result.threads << "\n";
 
-        std::cout << "Method 1 (TBB):     "
+        std::cout << "Method 1 (TBB):\n";
+        std::cout << "  Average:  "
                   << result.method1Average
                   << " microseconds\n";
+        std::cout << "  Variance: "
+                  << result.method1Variance
+                  << " microseconds^2\n";
 
-        std::cout << "Method 2 (Static):  "
+        std::cout << "Method 2 (Static):\n";
+        std::cout << "  Average:  "
                   << result.method2Average
                   << " microseconds\n";
+        std::cout << "  Variance: "
+                  << result.method2Variance
+                  << " microseconds^2\n";
 
-        std::cout << "Method 3 (Dynamic): "
+        std::cout << "Method 3 (Dynamic):\n";
+        std::cout << "  Average:  "
                   << result.method3Average
                   << " microseconds\n";
+        std::cout << "  Variance: "
+                  << result.method3Variance
+                  << " microseconds^2\n";
     }
 
     return 0;
