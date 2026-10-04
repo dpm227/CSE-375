@@ -132,9 +132,9 @@ long long method3(int N, int num_threads)
 int main(int argc, char *argv[])
 {
     std::vector<int> nValues = {
-        1'000,
+        100'000,
         10'000,
-        100'000};
+        1'000};
 
     std::vector<int> threadCounts = {
         1,
@@ -145,53 +145,39 @@ int main(int argc, char *argv[])
 
     const int numTrials = 5;
 
+    struct Result
+    {
+        int N;
+        int threads;
+        double method1Average;
+        double method2Average;
+        double method3Average;
+    };
+
+    std::vector<Result> results;
+
+    // Run all experiments
     for (int N : nValues)
     {
-        std::cout << "\n\n========================================\n";
-        std::cout << "N = " << N << "\n";
-        std::cout << "========================================\n";
-
         for (int numThreads : threadCounts)
         {
-            std::cout << "\n----------------------------------------\n";
-            std::cout << "Threads = " << numThreads << "\n";
-            std::cout << "----------------------------------------\n";
-
             long long method1Total = 0;
             long long method2Total = 0;
             long long method3Total = 0;
 
-            // Method 1: TBB
             for (int trial = 0; trial < numTrials; trial++)
             {
-                std::cout << "\nMethod 1, Trial " << trial + 1 << ":\n";
-
-                long long time = method1(N, numThreads);
-                method1Total += time;
-
-                std::cout << "\nTime: " << time << " microseconds\n";
+                method1Total += method1(N, numThreads);
             }
 
-            // Method 2: Static load balancing
             for (int trial = 0; trial < numTrials; trial++)
             {
-                std::cout << "\nMethod 2, Trial " << trial + 1 << ":\n";
-
-                long long time = method2(N, numThreads);
-                method2Total += time;
-
-                std::cout << "\nTime: " << time << " microseconds\n";
+                method2Total += method2(N, numThreads);
             }
 
-            // Method 3: Dynamic load balancing
             for (int trial = 0; trial < numTrials; trial++)
             {
-                std::cout << "\nMethod 3, Trial " << trial + 1 << ":\n";
-
-                long long time = method3(N, numThreads);
-                method3Total += time;
-
-                std::cout << "\nTime: " << time << " microseconds\n";
+                method3Total += method3(N, numThreads);
             }
 
             double method1Average =
@@ -203,19 +189,38 @@ int main(int argc, char *argv[])
             double method3Average =
                 method3Total / static_cast<double>(numTrials);
 
-            std::cout << "\nAVERAGES\n";
-            std::cout << "N: " << N
-                      << ", Threads: " << numThreads << "\n";
-
-            std::cout << "Method 1 (TBB):     "
-                      << method1Average << " microseconds\n";
-
-            std::cout << "Method 2 (Static):  "
-                      << method2Average << " microseconds\n";
-
-            std::cout << "Method 3 (Dynamic): "
-                      << method3Average << " microseconds\n";
+            results.push_back({N,
+                               numThreads,
+                               method1Average,
+                               method2Average,
+                               method3Average});
         }
+    }
+
+    // Print all results at the very end
+    std::cout << "\n\n========================================\n";
+    std::cout << "FINAL AVERAGE RESULTS\n";
+    std::cout << "Each average is based on "
+              << numTrials << " trials\n";
+    std::cout << "Times are in microseconds\n";
+    std::cout << "========================================\n";
+
+    for (const auto &result : results)
+    {
+        std::cout << "\nN = " << result.N
+                  << ", Threads = " << result.threads << "\n";
+
+        std::cout << "Method 1 (TBB):     "
+                  << result.method1Average
+                  << " microseconds\n";
+
+        std::cout << "Method 2 (Static):  "
+                  << result.method2Average
+                  << " microseconds\n";
+
+        std::cout << "Method 3 (Dynamic): "
+                  << result.method3Average
+                  << " microseconds\n";
     }
 
     return 0;
