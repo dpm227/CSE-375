@@ -2,6 +2,8 @@
 # After compiling kmeans and serial, run: bash run_tests.sh
 # magic.txt: UCI MAGIC Gamma Telescope, https://doi.org/10.24432/C52C8B
 # Original numeric features retained; g/h class labels omitted.
+# covertype.txt: UCI Covertype, https://archive.ics.uci.edu/dataset/31/covertype
+# All 54 feature columns retained at original scales; class label omitted.
 set -e
 cd -- "$(dirname -- "$0")"
 
@@ -11,7 +13,7 @@ if [[ ! -x ./serial || ! -x ./kmeans ]]; then
 fi
 
 mkdir -p results
-for dataset in dataset1 dataset2 magic; do
+for dataset in dataset1 dataset2 magic covertype; do
     for trial in 1 2 3 4 5; do
         echo "$dataset: trial $trial of 5"
         ./serial < "datasets/$dataset.txt" \
