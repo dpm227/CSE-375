@@ -5,14 +5,15 @@
  * 10-4-26
  *
  * Compilation:
- * g++ -O3 -std=c++17 -pthread -DTBB_PREVIEW_GLOBAL_CONTROL=1 main.cpp -ltbb -o kmeans
- * sed 's/srand (time(NULL));/srand(1);/' ../kmeans-serial.cpp > /tmp/kmeans-serial.cpp
- * g++ -O3 -std=c++17 /tmp/kmeans-serial.cpp -o serial
+  g++ -O3 -std=c++17 -pthread -DTBB_PREVIEW_GLOBAL_CONTROL=1 main.cpp -ltbb -o kmeans
+  sed 's/srand (time(NULL));/srand(1);/' kmeans-serial.cpp > /tmp/kmeans-serial.cpp
+  g++ -O3 -std=c++17 /tmp/kmeans-serial.cpp -o serial
  *
  * Running:
- * bash run_tests.sh
+  bash run_tests.sh
+ *
  * Grain-size tests on MAGIC with 8 threads:
- * bash run_tests.sh x 64 128 256 512 1024 2048 4096
+  bash run_tests.sh x 64 128 256 512 1024 2048 4096
  * Single run: ./kmeans 8 x 64 < datasets/magic.txt
  */
 
@@ -43,7 +44,8 @@ int main(int argc, char **argv)
 {
     try
     {
-        auto positiveInt = [](const char *text) {
+        auto positiveInt = [](const char *text)
+        {
             size_t used;
             int value = std::stoi(text, &used);
             if (value < 1 || text[used] != '\0')
