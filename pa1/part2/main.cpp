@@ -56,7 +56,7 @@ int main(int argc, char **argv)
             !(argc == 4 && std::string(argv[2]) == "x"))
             throw std::runtime_error("Invalid arguments");
         int threads = argc > 1 ? positiveInt(argv[1]) : 1;
-        int grain = argc == 4 ? positiveInt(argv[3]) : 256;
+        int grain = argc == 4 ? positiveInt(argv[3]) : 512;
         int n, d, k, limit, named;
         if (!(std::cin >> n >> d >> k >> limit >> named) ||
             n < 1 || d < 1 || k < 1 || k > n || limit < 1 ||
