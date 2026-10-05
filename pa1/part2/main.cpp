@@ -1,16 +1,18 @@
-/*
- * PA1 Part 2
- * Sunlab:
- *   c++ -O3 -std=c++17 -pthread main.cpp -ltbb -o kmeans
- * Local:
- *   c++ -O3 -std=c++17 -pthread main.cpp -I/opt/homebrew/opt/tbb/include -L/opt/homebrew/opt/tbb/lib -Wl,-rpath,/opt/homebrew/opt/tbb/lib -ltbb -o kmeans
- * Run either dataset:
- *   ./kmeans 4 < datasets/dataset1.txt
- *   ./kmeans 4 < datasets/dataset2.txt
- * Only option: positive thread count (default 1).
- * Seed is fixed at 1 and grain size at 256 for repeatable comparisons.
- * Compare against the supplied serial program using the same seed.
+/**
+ * Dylan McClellan
+ * dpm227
+ * PA1
+ * 10-4-26
+ *
+ * Compilation:
+ * g++ -O3 -std=c++17 -pthread -DTBB_PREVIEW_GLOBAL_CONTROL=1 main.cpp -ltbb -o kmeans
+ * sed 's/srand (time(NULL));/srand(1);/' ../kmeans-serial.cpp > /tmp/kmeans-serial.cpp
+ * g++ -O3 -std=c++17 /tmp/kmeans-serial.cpp -o serial
+ *
+ * Running:
+ * bash run_tests.sh
  */
+
 #include <tbb/blocked_range.h>
 #include <tbb/global_control.h>
 #include <tbb/parallel_for.h>
