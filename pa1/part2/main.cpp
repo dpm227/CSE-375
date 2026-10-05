@@ -11,6 +11,9 @@
  *
  * Running:
  * bash run_tests.sh
+ * Grain-size tests on MAGIC with 8 threads:
+ * bash run_tests.sh x 64 128 256 512 1024 2048 4096
+ * Single run: ./kmeans 8 x 64 < datasets/magic.txt
  */
 
 #include <tbb/blocked_range.h>
@@ -40,10 +43,20 @@ int main(int argc, char **argv)
 {
     try
     {
-        int threads = argc > 1 ? std::stoi(argv[1]) : 1;
+        auto positiveInt = [](const char *text) {
+            size_t used;
+            int value = std::stoi(text, &used);
+            if (value < 1 || text[used] != '\0')
+                throw std::runtime_error("Expected a positive integer");
+            return value;
+        };
+        if (argc != 1 && argc != 2 &&
+            !(argc == 4 && std::string(argv[2]) == "x"))
+            throw std::runtime_error("Invalid arguments");
+        int threads = argc > 1 ? positiveInt(argv[1]) : 1;
+        int grain = argc == 4 ? positiveInt(argv[3]) : 256;
         int n, d, k, limit, named;
-        if (argc > 2 || threads < 1 ||
-            !(std::cin >> n >> d >> k >> limit >> named) ||
+        if (!(std::cin >> n >> d >> k >> limit >> named) ||
             n < 1 || d < 1 || k < 1 || k > n || limit < 1 ||
             (named != 0 && named != 1) || k > std::numeric_limits<int>::max() / d)
             throw std::runtime_error("Invalid arguments or dataset header");
@@ -119,7 +132,7 @@ int main(int argc, char **argv)
                     a.sums[j] += b.sums[j];
                 return a;
             };
-            tbb::blocked_range<int> range(0, n, 256);
+            tbb::blocked_range<int> range(0, n, grain);
             Totals totals = tbb::parallel_reduce(range, Totals(k, d), assign, combine);
 
             auto update = [&](int c)
@@ -164,7 +177,7 @@ int main(int argc, char **argv)
     }
     catch (const std::exception &e)
     {
-        std::cerr << e.what() << "\nUsage: ./kmeans [threads>=1] < data.txt\n";
+        std::cerr << e.what() << "\nUsage: ./kmeans [threads] [x grain_size] < data.txt\n";
         return 1;
     }
 }
