@@ -21,7 +21,8 @@
    ./benchmark --stripes > stripes.csv
    ./benchmark --stripes 10000 > stripes-smoke.csv
  * Uses 8 threads, a 50/25/25 mix, and 16,384 buckets per row for all counts.
- * Tests 1, 2, 4, 8, 16, 32, 64 stripes per row (twice as many total locks).
+ * Tests 1, 2, 4, 8, 16, 32, 64, 256, 1024, 4096 stripes per row (twice as many total locks).
+ * Main striped runs use STRIPES (1024) per row, starting at 1024 buckets per row.
  * Stripe speedup is relative to one stripe per row, using the same 8 threads.
  * Output: CSV averages, sample standard deviations, throughput, and speedup.
  */
@@ -42,6 +43,8 @@
 constexpr int INITIAL_SIZE = 10'000;
 constexpr int KEY_RANGE = 20'000;
 constexpr int TRIALS = 5;
+// Lock stripes per row for the main striped runs, since gains level off at 1024
+constexpr int STRIPES = 1024;
 
 struct Operation
 {
@@ -224,7 +227,7 @@ int main(int argc, char *argv[])
             if (stripeExperiment)
             {
                 // Same capacity and workload isolate the effect of lock count.
-                for (int stripes : {1, 2, 4, 8, 16, 32, 64})
+                for (int stripes : {1, 2, 4, 8, 16, 32, 64, 256, 1024, 4096})
                     measure([&]()
                             { return run<StripedHashSet<int>>(
                                   initial, work, 8, false, stripes, 16384); },
@@ -236,7 +239,7 @@ int main(int argc, char *argv[])
             for (int threads : {1, 2, 4, 8, 16})
             {
                 measure([&]()
-                        { return run<StripedHashSet<int>>(initial, work, threads, false); }, "striped", threads, 16);
+                        { return run<StripedHashSet<int>>(initial, work, threads, false, STRIPES); }, "striped", threads, STRIPES, STRIPES);
 #ifdef __cpp_transactional_memory
                 measure([&]()
                         { return run<TransactionalHashSet<int>>(initial, work, threads, false); }, "transactional", threads);
