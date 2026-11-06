@@ -17,6 +17,12 @@
  * Default: 1,000,000 operations, 10,000 initial values, 5 trials per configuration.
  * Optional smaller smoke run (same mixes, thread counts, and trial count):
    ./benchmark 10000 > smoke.csv
+ * Optional stripe-count experiment:
+   ./benchmark --stripes > stripes.csv
+   ./benchmark --stripes 10000 > stripes-smoke.csv
+ * Uses 8 threads, a 50/25/25 mix, and 16,384 buckets per row for all counts.
+ * Tests 1, 2, 4, 8, 16, 32, 64 stripes per row (twice as many total locks).
+ * Stripe speedup is relative to one stripe per row, using the same 8 threads.
  * Output: CSV averages, sample standard deviations, throughput, and speedup.
  */
 
@@ -55,11 +61,11 @@ struct Result
     long long found;
 };
 
-template <class Set>
+template <class Set, class... Args>
 Result run(const std::vector<int> &initial, const std::vector<Operation> &work,
-           int threadCount, bool sequential)
+           int threadCount, bool sequential, Args... args)
 {
-    Set set; // Each trial starts with a fresh table and the same initial keys
+    Set set(args...); // Each trial starts with a fresh table and the same initial keys
     std::size_t next = 0;
     set.populate(initial.size(), [&]()
                  { return initial[next++]; });
@@ -149,11 +155,13 @@ int main(int argc, char *argv[])
     try
     {
         std::size_t operations = 1'000'000;
-        if (argc > 2)
-            throw std::invalid_argument("usage: ./benchmark [operations]");
-        if (argc == 2)
+        bool stripeExperiment = argc > 1 && std::string(argv[1]) == "--stripes";
+        int argumentIndex = stripeExperiment ? 2 : 1;
+        if (argc > argumentIndex + 1)
+            throw std::invalid_argument("usage: ./benchmark [--stripes] [operations]");
+        if (argc > argumentIndex)
         {
-            std::string argument(argv[1]);
+            std::string argument(argv[argumentIndex]);
             if (argument.empty() || argument.find_first_not_of("0123456789") != std::string::npos)
                 throw std::invalid_argument("operations must be a positive integer");
             operations = std::stoull(argument);
@@ -161,7 +169,8 @@ int main(int argc, char *argv[])
                 throw std::invalid_argument("operations must be positive");
         }
 #ifndef __cpp_transactional_memory
-        std::cerr << "GCC TM unavailable: running sequential and striped only.\n";
+        if (!stripeExperiment)
+            std::cerr << "GCC TM unavailable: running sequential and striped only.\n";
 #endif
         // Shuffle unique keys to get the same random initial population each ru
         std::mt19937 initialRandom(1);
@@ -171,10 +180,14 @@ int main(int argc, char *argv[])
         initial.resize(INITIAL_SIZE);
 
         std::cout << "contains_pct,add_pct,remove_pct,implementation,threads,operations,"
-                     "trials,mean_ms,sd_ms,ops_per_second,speedup,contains_hits\n";
+                     "trials,mean_ms,sd_ms,ops_per_second,"
+                  << (stripeExperiment ? "speedup_vs_one_stripe" : "speedup")
+                  << ",contains_hits,stripes_per_row,initial_buckets_per_row\n";
         std::cout << std::fixed << std::setprecision(3);
         for (int containsPercent : {80, 50, 10})
         {
+            if (stripeExperiment && containsPercent != 50)
+                continue;
             int addPercent = (100 - containsPercent) / 2;
             // Exactly the requested proportions for the default operation count
             // Shuffle operation kinds and assign random keys before timing
@@ -187,7 +200,7 @@ int main(int argc, char *argv[])
                            key(random)};
             std::shuffle(work.begin(), work.end(), random);
             double baseline = 0;
-            auto measure = [&](auto makeRun, const char *name, int threads)
+            auto measure = [&](auto makeRun, const char *name, int threads, int stripes = 0, int capacity = 16)
             {
                 double times[TRIALS], sum = 0, squared = 0;
                 long long found = 0;
@@ -206,14 +219,24 @@ int main(int argc, char *argv[])
                 std::cout << containsPercent << ',' << addPercent << ',' << addPercent << ','
                           << name << ',' << threads << ',' << operations << ',' << TRIALS << ','
                           << mean * 1000 << ',' << std::sqrt(squared / (TRIALS - 1)) * 1000 << ','
-                          << operations / mean << ',' << baseline / mean << ',' << found << '\n';
+                          << operations / mean << ',' << baseline / mean << ',' << found << ',' << stripes << ',' << capacity << '\n';
             };
+            if (stripeExperiment)
+            {
+                // Same capacity and workload isolate the effect of lock count.
+                for (int stripes : {1, 2, 4, 8, 16, 32, 64})
+                    measure([&]()
+                            { return run<StripedHashSet<int>>(
+                                  initial, work, 8, false, stripes, 16384); },
+                            "striped", 8, stripes, 16384);
+                continue;
+            }
             measure([&]()
                     { return run<SequentialHashSet<int>>(initial, work, 1, true); }, "sequential", 1);
             for (int threads : {1, 2, 4, 8, 16})
             {
                 measure([&]()
-                        { return run<StripedHashSet<int>>(initial, work, threads, false); }, "striped", threads);
+                        { return run<StripedHashSet<int>>(initial, work, threads, false); }, "striped", threads, 16);
 #ifdef __cpp_transactional_memory
                 measure([&]()
                         { return run<TransactionalHashSet<int>>(initial, work, threads, false); }, "transactional", threads);

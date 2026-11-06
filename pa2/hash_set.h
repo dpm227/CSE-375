@@ -427,15 +427,16 @@ class StripedHashSet
     }
 
 public:
-    // Capacity starts at lockCount and only doubles, so each bucket always
-    // belongs to the same stripe even after resizing.
-    explicit StripedHashSet(std::size_t stripes = 16)
-        : lockCount(stripes), locks(nullptr), capacity(stripes)
+    // Capacity must be a multiple of lockCount so bucket-to-lock mapping
+    // remains consistent when capacity doubles. Zero uses the stripe count.
+    explicit StripedHashSet(std::size_t stripes = 16, std::size_t initialCapacity = 0)
+        : lockCount(stripes), locks(nullptr), capacity(initialCapacity ? initialCapacity : stripes)
     {
-        if (!stripes || stripes > table.max_size() / 2)
+        if (!stripes || stripes > table.max_size() / 2 ||
+            capacity > table.max_size() / 2 || capacity % stripes != 0)
             throw std::invalid_argument("invalid stripe count");
         locks = std::make_unique<std::mutex[]>(2 * stripes);
-        table.resize(2 * stripes);
+        table.resize(2 * capacity);
     }
 
     bool add(const T &value)
