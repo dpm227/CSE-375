@@ -99,6 +99,7 @@ int main(int argc, char **argv)
         {
             auto assign = [&](const tbb::blocked_range<int> &range, Totals local)
             {
+                // find the nearest center
                 for (int i = range.begin(); i < range.end(); ++i)
                 {
                     int nearest = 0;
