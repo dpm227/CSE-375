@@ -4,6 +4,7 @@
 #define PA2_HASH_SET_H
 
 #include <cstddef>
+#include <atomic>
 #include <cstdint>
 #include <cstdlib>
 #include <functional>
@@ -166,8 +167,6 @@ protected:
             return 0;
         if (!place(table, capacity, item) && !grow(item))
             return -1;
-        item->next = allocated;
-        allocated = item;
         return 1;
     }
 
@@ -213,7 +212,10 @@ public:
         if (result < 0)
             throw std::runtime_error("cuckoo growth failed: allocation or excessive hash collisions");
         if (result)
-            item.release();
+        {
+            item->next = allocated;
+            allocated = item.release();
+        }
         return result != 0;
     }
 
@@ -252,10 +254,17 @@ class TransactionalHashSet : private SequentialHashSet<T, Hash, Equal>
 {
     using Base = SequentialHashSet<T, Hash, Equal>;
     using Entry = typename Base::Entry;
+    std::atomic<Entry *> committed{nullptr};
 
 public:
     using Base::Base;
     using Base::size;
+
+    ~TransactionalHashSet()
+    {
+        // Workers must be joined first. The base destructor frees this list.
+        this->allocated = committed.load();
+    }
 
     bool add(const T &value)
     {
@@ -266,7 +275,14 @@ public:
         if (result < 0)
             throw std::runtime_error("cuckoo growth failed: allocation or excessive hash collisions");
         if (result)
+        {
+            // Record ownership after commit so unrelated insert transactions
+            // do not conflict on a shared allocation-list pointer. Removed
+            // entries still stay alive until the set is destroyed.
+            raw->next = committed.load();
+            while (!committed.compare_exchange_weak(raw->next, raw)) {}
             item.release();
+        }
         return result != 0;
     }
 
