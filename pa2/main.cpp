@@ -24,6 +24,11 @@
  * Tests 1, 2, 4, 8, 16, 32, 64, 256, 1024, 4096 stripes per row (twice as many total locks).
  * Main striped runs use STRIPES (1024) per row, starting at 1024 buckets per row.
  * Stripe speedup is relative to one stripe per row, using the same 8 threads.
+ * Optional initial-size experiment:
+   ./benchmark --sizes > sizes.csv
+ * Repeats the main runs (all implementations and thread counts) with a 50/25/25 mix
+ * at 10,000, 100,000, and 1,000,000 initial values, with keys drawn from twice that range.
+ * Speedup is relative to sequential at the same size.
  * Output: CSV averages, sample standard deviations, throughput, and speedup.
  */
 
@@ -158,10 +163,12 @@ int main(int argc, char *argv[])
     try
     {
         std::size_t operations = 1'000'000;
-        bool stripeExperiment = argc > 1 && std::string(argv[1]) == "--stripes";
-        int argumentIndex = stripeExperiment ? 2 : 1;
-        if (argc > argumentIndex + 1)
-            throw std::invalid_argument("usage: ./benchmark [--stripes] [operations]");
+        std::string mode = argc > 1 && argv[1][0] == '-' ? argv[1] : "";
+        bool stripeExperiment = mode == "--stripes";
+        bool sizeExperiment = mode == "--sizes";
+        int argumentIndex = mode.empty() ? 1 : 2;
+        if (argc > argumentIndex + 1 || (!mode.empty() && !stripeExperiment && !sizeExperiment))
+            throw std::invalid_argument("usage: ./benchmark [--stripes | --sizes] [operations]");
         if (argc > argumentIndex)
         {
             std::string argument(argv[argumentIndex]);
@@ -175,75 +182,84 @@ int main(int argc, char *argv[])
         if (!stripeExperiment)
             std::cerr << "GCC TM unavailable: running sequential and striped only.\n";
 #endif
-        // Shuffle unique keys to get the same random initial population each ru
-        std::mt19937 initialRandom(1);
-        std::vector<int> initial(KEY_RANGE);
-        std::iota(initial.begin(), initial.end(), 0);
-        std::shuffle(initial.begin(), initial.end(), initialRandom);
-        initial.resize(INITIAL_SIZE);
-
         std::cout << "contains_pct,add_pct,remove_pct,implementation,threads,operations,"
                      "trials,mean_ms,sd_ms,ops_per_second,"
                   << (stripeExperiment ? "speedup_vs_one_stripe" : "speedup")
-                  << ",contains_hits,stripes_per_row,initial_buckets_per_row\n";
+                  << ",contains_hits,stripes_per_row,initial_buckets_per_row,initial_size,key_range\n";
         std::cout << std::fixed << std::setprecision(3);
-        for (int containsPercent : {80, 50, 10})
+        // The size experiment repeats the main runs at larger tables; the key
+        // range stays twice the initial size so about half the lookups hit
+        std::vector<int> sizes = sizeExperiment ? std::vector<int>{10'000, 100'000, 1'000'000}
+                                                : std::vector<int>{INITIAL_SIZE};
+        for (int initialSize : sizes)
         {
-            if (stripeExperiment && containsPercent != 50)
-                continue;
-            int addPercent = (100 - containsPercent) / 2;
-            // Exactly the requested proportions for the default operation count
-            // Shuffle operation kinds and assign random keys before timing
-            std::mt19937 random(2);
-            std::uniform_int_distribution<int> key(0, KEY_RANGE - 1);
-            std::vector<Operation> work(operations);
-            for (std::size_t i = 0; i < operations; ++i)
-                work[i] = {i % 100 < static_cast<unsigned>(containsPercent) ? 0 : i % 100 < static_cast<unsigned>(containsPercent + addPercent) ? 1
-                                                                                                                                                : 2,
-                           key(random)};
-            std::shuffle(work.begin(), work.end(), random);
-            double baseline = 0;
-            auto measure = [&](auto makeRun, const char *name, int threads, int stripes = 0, int capacity = 16)
+            int keyRange = sizeExperiment ? 2 * initialSize : KEY_RANGE;
+            // Shuffle unique keys to get the same random initial population each run
+            std::mt19937 initialRandom(1);
+            std::vector<int> initial(keyRange);
+            std::iota(initial.begin(), initial.end(), 0);
+            std::shuffle(initial.begin(), initial.end(), initialRandom);
+            initial.resize(initialSize);
+
+            for (int containsPercent : {80, 50, 10})
             {
-                double times[TRIALS], sum = 0, squared = 0;
-                long long found = 0;
-                for (int trial = 0; trial < TRIALS; ++trial)
+                if ((stripeExperiment || sizeExperiment) && containsPercent != 50)
+                    continue;
+                int addPercent = (100 - containsPercent) / 2;
+                // Exactly the requested proportions for the default operation count
+                // Shuffle operation kinds and assign random keys before timing
+                std::mt19937 random(2);
+                std::uniform_int_distribution<int> key(0, keyRange - 1);
+                std::vector<Operation> work(operations);
+                for (std::size_t i = 0; i < operations; ++i)
+                    work[i] = {i % 100 < static_cast<unsigned>(containsPercent) ? 0 : i % 100 < static_cast<unsigned>(containsPercent + addPercent) ? 1
+                                                                                                                                                    : 2,
+                               key(random)};
+                std::shuffle(work.begin(), work.end(), random);
+                double baseline = 0;
+                auto measure = [&](auto makeRun, const char *name, int threads, int stripes = 0, int capacity = 16)
                 {
-                    Result result = makeRun();
-                    times[trial] = result.seconds;
-                    sum += result.seconds;
-                    found += result.found;
+                    double times[TRIALS], sum = 0, squared = 0;
+                    long long found = 0;
+                    for (int trial = 0; trial < TRIALS; ++trial)
+                    {
+                        Result result = makeRun();
+                        times[trial] = result.seconds;
+                        sum += result.seconds;
+                        found += result.found;
+                    }
+                    double mean = sum / TRIALS;
+                    for (double time : times)
+                        squared += (time - mean) * (time - mean);
+                    if (!baseline)
+                        baseline = mean;
+                    std::cout << containsPercent << ',' << addPercent << ',' << addPercent << ','
+                              << name << ',' << threads << ',' << operations << ',' << TRIALS << ','
+                              << mean * 1000 << ',' << std::sqrt(squared / (TRIALS - 1)) * 1000 << ','
+                              << operations / mean << ',' << baseline / mean << ',' << found << ',' << stripes << ',' << capacity << ','
+                              << initialSize << ',' << keyRange << '\n';
+                };
+                if (stripeExperiment)
+                {
+                    // Same capacity and workload isolate the effect of lock count.
+                    for (int stripes : {1, 2, 4, 8, 16, 32, 64, 256, 1024, 4096})
+                        measure([&]()
+                                { return run<StripedHashSet<int>>(
+                                      initial, work, 8, false, stripes, 16384); },
+                                "striped", 8, stripes, 16384);
+                    continue;
                 }
-                double mean = sum / TRIALS;
-                for (double time : times)
-                    squared += (time - mean) * (time - mean);
-                if (!baseline)
-                    baseline = mean;
-                std::cout << containsPercent << ',' << addPercent << ',' << addPercent << ','
-                          << name << ',' << threads << ',' << operations << ',' << TRIALS << ','
-                          << mean * 1000 << ',' << std::sqrt(squared / (TRIALS - 1)) * 1000 << ','
-                          << operations / mean << ',' << baseline / mean << ',' << found << ',' << stripes << ',' << capacity << '\n';
-            };
-            if (stripeExperiment)
-            {
-                // Same capacity and workload isolate the effect of lock count.
-                for (int stripes : {1, 2, 4, 8, 16, 32, 64, 256, 1024, 4096})
+                measure([&]()
+                        { return run<SequentialHashSet<int>>(initial, work, 1, true); }, "sequential", 1);
+                for (int threads : {1, 2, 4, 8, 16})
+                {
                     measure([&]()
-                            { return run<StripedHashSet<int>>(
-                                  initial, work, 8, false, stripes, 16384); },
-                            "striped", 8, stripes, 16384);
-                continue;
-            }
-            measure([&]()
-                    { return run<SequentialHashSet<int>>(initial, work, 1, true); }, "sequential", 1);
-            for (int threads : {1, 2, 4, 8, 16})
-            {
-                measure([&]()
-                        { return run<StripedHashSet<int>>(initial, work, threads, false, STRIPES); }, "striped", threads, STRIPES, STRIPES);
+                            { return run<StripedHashSet<int>>(initial, work, threads, false, STRIPES); }, "striped", threads, STRIPES, STRIPES);
 #ifdef __cpp_transactional_memory
-                measure([&]()
-                        { return run<TransactionalHashSet<int>>(initial, work, threads, false); }, "transactional", threads);
+                    measure([&]()
+                            { return run<TransactionalHashSet<int>>(initial, work, threads, false); }, "transactional", threads);
 #endif
+                }
             }
         }
     }
